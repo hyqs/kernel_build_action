@@ -12,12 +12,12 @@ on:
       kernelRepoUrl:
         description: 'Android 内核源码 GitHub 仓库地址'
         required: true
-        default: 'https://github.com/你的内核源码仓库.git'
+        default: 'https://github.com/crdroidandroid/android_kernel_oneplus_sm8250.git'
       # 允许指定内核源码分支（适配不同设备内核版本）
       kernelBranch:
         description: 'Android 内核源码分支'
         required: true
-        default: 'main'
+        default: '12.1'
 
 jobs:
   compile-driver:
@@ -44,9 +44,11 @@ jobs:
       - name: 检出 Android 内核源码
         run: |
           git clone --branch ${{ github.event.inputs.kernelBranch }} ${{ github.event.inputs.kernelRepoUrl }} kernel-source
-          # 生成内核编译配置（需内核源码自带默认配置，如 arm64 对应 defconfig）
           cd kernel-source
-          make ARCH=${{ github.event.inputs.deviceArch }} defconfig
+     # 关键修改：使用oneplus sm8250的厂商专属配置（替代通用defconfig）
+          make ARCH=${{ github.event.inputs.deviceArch }} configs/vendor/kona-perf_defconfig
+     # 新增：预处理内核模块编译环境（避免驱动编译时缺少头文件/依赖）
+     make ARCH=${{ github.event.inputs.deviceArch }} CROSS_COMPILE=aarch64-linux-gnu-
 
       # 步骤4：配置环境变量并编译驱动（对应“配置变量+编译”操作）
       - name: 配置环境并编译驱动
