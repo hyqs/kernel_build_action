@@ -1,0 +1,75 @@
+name: 编译 RTL88x2BU/RTL8812AU Android 驱动
+on:
+  # 支持手动触发，可在 GitHub 仓库页面手动选择执行
+  workflow_dispatch:
+    inputs:
+      # 允许手动指定设备架构（arm/arm64，默认 arm64）
+      deviceArch:
+        description: '目标设备架构（arm/arm64）'
+        required: true
+        default: 'arm64'
+      # 允许手动填写 Android 内核源码仓库地址（需公开可克隆）
+      kernelRepoUrl:
+        description: 'Android 内核源码 GitHub 仓库地址'
+        required: true
+        default: 'https://github.com/你的内核源码仓库.git'
+      # 允许指定内核源码分支（适配不同设备内核版本）
+      kernelBranch:
+        description: 'Android 内核源码分支'
+        required: true
+        default: 'main'
+
+jobs:
+  compile-driver:
+    # 选择 Ubuntu 最新环境（兼容编译工具链）
+    runs-on: ubuntu-latest
+    steps:
+      # 步骤1：检出驱动源码仓库（对应“克隆仓库”操作）
+      - name: 检出驱动源码
+        uses: actions/checkout@v4
+        with:
+          repository: ShorterKing/RTL88x2BU-Android-Drivers_rtl8812au
+          path: driver-source  # 将驱动源码存到 driver-source 目录
+
+      # 步骤2：安装编译依赖（含交叉工具链、make、gcc 等）
+      - name: 安装编译依赖工具
+        run: |
+          sudo apt update
+          # 安装基础编译工具与 Android 交叉编译工具链
+          sudo apt install -y git make gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+          # 安装内核编译依赖
+          sudo apt install -y libncurses5-dev bc flex bison openssl libssl-dev dkms libelf-dev libudev-dev libpci-dev libiberty-dev
+
+      # 步骤3：检出 Android 内核源码（适配不同设备内核）
+      - name: 检出 Android 内核源码
+        run: |
+          git clone --branch ${{ github.event.inputs.kernelBranch }} ${{ github.event.inputs.kernelRepoUrl }} kernel-source
+          # 生成内核编译配置（需内核源码自带默认配置，如 arm64 对应 defconfig）
+          cd kernel-source
+          make ARCH=${{ github.event.inputs.deviceArch }} defconfig
+
+      # 步骤4：配置环境变量并编译驱动（对应“配置变量+编译”操作）
+      - name: 配置环境并编译驱动
+        run: |
+          # 进入驱动源码目录
+          cd driver-source
+          # 设置环境变量（与手动编译一致，适配输入的架构）
+          export ARCH=${{ github.event.inputs.deviceArch }}
+          # 根据架构选择交叉编译工具链前缀
+          if [ "${{ github.event.inputs.deviceArch }}" = "arm64" ]; then
+            export CROSS_COMPILE=aarch64-linux-gnu-
+          else
+            export CROSS_COMPILE=arm-linux-gnueabihf-
+          fi
+          # 指定内核源码目录（对应前期准备的内核源码路径）
+          export KERNEL_DIR=$(pwd)/../kernel-source
+          # 开始编译，调用最大线程数加速
+          make -j$(nproc)
+
+      # 步骤5：保存编译产物（将 88x2bu.ko 驱动模块作为工件供下载）
+      - name: 上传驱动编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtl88x2bu-driver-${{ github.event.inputs.deviceArch }}
+          path: driver-source/88x2bu.ko  # 指向编译生成的驱动模块路径
+          retention-days: 7  # 产物保留7天，可按需修改
